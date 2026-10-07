@@ -116,6 +116,8 @@ AI_MAX_TOKENS = 1024   # Max tokens for AI response
 USE_PORTFOLIO_ALLOCATION = False # True = Use AI for portfolio allocation across multiple tokens
                                  # False = Simple mode - trade single token at MAX_POSITION_PERCENTAGE
 
+CASH_PERCENTAGE = 20             # Minimum % of portfolio kept as cash buffer (used by AI portfolio allocation)
+
 MAX_POSITION_PERCENTAGE = 90     # % of account balance to use as MARGIN per position (0-100)
                                  # How it works per exchange:
                                  # - ASTER/HYPERLIQUID: % of balance used as MARGIN (then multiplied by leverage)
@@ -264,6 +266,7 @@ import os
 import sys
 import pandas as pd
 import json
+import re
 from termcolor import cprint
 from dotenv import load_dotenv
 from datetime import datetime, timedelta
@@ -527,7 +530,7 @@ class TradingAgent:
             cprint(f"❌ AI model error: {e}", "red")
             return None
 
-    def _format_market_data_for_swarm(self, token, market_data):
+    def _format_market_data_for_swarm(self, token, market_data, strategy_signals=None):
         """Format market data into a clean, readable format for swarm analysis"""
         try:
             # Print market data visibility for confirmation
@@ -566,8 +569,8 @@ FULL DATASET:
                 formatted = f"TOKEN: {token}\nMARKET DATA:\n{str(market_data)}"
 
             # Add strategy signals if available
-            if isinstance(market_data, dict) and 'strategy_signals' in market_data:
-                formatted += f"\n\nSTRATEGY SIGNALS:\n{json.dumps(market_data['strategy_signals'], indent=2)}"
+            if strategy_signals:
+                formatted += f"\n\nSTRATEGY SIGNALS:\n{json.dumps(strategy_signals, indent=2)}"
 
             cprint("\n✅ Market data formatted and ready for swarm!\n", "green")
             return formatted
@@ -598,13 +601,13 @@ FULL DATASET:
                 if not data["success"]:
                     continue
 
-                response_text = data["response"].strip().upper()
+                response_text = re.sub(r'[^A-Z ]', '', data["response"].strip().upper())
 
-                # Parse the response - look for Buy, Sell, or Do Nothing
-                if "BUY" in response_text:
+                # Parse the response - the answer must START with Buy or Sell, anything else is Do Nothing
+                if response_text.startswith("BUY"):
                     votes["BUY"] += 1
                     model_votes.append(f"{provider}: Buy")
-                elif "SELL" in response_text:
+                elif response_text.startswith("SELL"):
                     votes["SELL"] += 1
                     model_votes.append(f"{provider}: Sell")
                 else:
@@ -617,8 +620,10 @@ FULL DATASET:
                 return "NOTHING", 0, "No valid responses from swarm"
 
             # Find majority vote
-            majority_action = max(votes, key=votes.get)
-            majority_count = votes[majority_action]
+            majority_count = max(votes.values())
+            top_actions = [a for a, c in votes.items() if c == majority_count]
+            # A tie between actions is not a consensus -> do nothing
+            majority_action = top_actions[0] if len(top_actions) == 1 else "NOTHING"
 
             # Calculate confidence as percentage of votes for majority action
             confidence = int((majority_count / total_votes) * 100)
@@ -640,7 +645,7 @@ FULL DATASET:
             cprint(f"❌ Error calculating swarm consensus: {e}", "red")
             return "NOTHING", 0, f"Error calculating consensus: {str(e)}"
 
-    def analyze_market_data(self, token, market_data):
+    def analyze_market_data(self, token, market_data, strategy_signals=None):
         """Analyze market data using AI model (single or swarm mode)"""
         try:
             # Skip analysis for excluded tokens
@@ -653,7 +658,7 @@ FULL DATASET:
                 cprint(f"\n🌊 Analyzing {token[:8]}... with SWARM (6 AI models voting)", "cyan", attrs=['bold'])
 
                 # Format market data for swarm
-                formatted_data = self._format_market_data_for_swarm(token, market_data)
+                formatted_data = self._format_market_data_for_swarm(token, market_data, strategy_signals)
 
                 # Query the swarm (takes ~45-60 seconds)
                 swarm_result = self.swarm.query(
@@ -686,10 +691,10 @@ FULL DATASET:
             else:
                 # Prepare strategy context
                 strategy_context = ""
-                if 'strategy_signals' in market_data:
+                if strategy_signals:
                     strategy_context = f"""
 Strategy Signals Available:
-{json.dumps(market_data['strategy_signals'], indent=2)}
+{json.dumps(strategy_signals, indent=2)}
                     """
                 else:
                     strategy_context = "No strategy signals available."
@@ -706,16 +711,23 @@ Strategy Signals Available:
 
                 # Parse the response
                 lines = response.split('\n')
-                action = lines[0].strip() if lines else "NOTHING"
+                first_line = ''.join(c for c in (lines[0] if lines else "") if c.isalpha()).upper()
+                if first_line.startswith("BUY"):
+                    action = "BUY"
+                elif first_line.startswith("SELL"):
+                    action = "SELL"
+                else:
+                    action = "NOTHING"  # Unrecognized or NOTHING -> never trade on unclear output
 
                 # Extract confidence from the response (assuming it's mentioned as a percentage)
                 confidence = 0
                 for line in lines:
                     if 'confidence' in line.lower():
                         # Extract number from string like "Confidence: 75%"
-                        try:
-                            confidence = int(''.join(filter(str.isdigit, line)))
-                        except:
+                        match = re.search(r'(\d{1,3})\s*%', line) or re.search(r'\d{1,3}', line)
+                        if match:
+                            confidence = min(int(match.group(match.lastindex or 0)), 100)
+                        else:
                             confidence = 50  # Default if not found
 
                 # Add to recommendations DataFrame with proper reasoning
@@ -870,6 +882,9 @@ Example format:
                 continue
 
             action = row['action']
+            if action not in ("BUY", "SELL", "NOTHING"):
+                cprint(f"⚠️ Unrecognized action '{action}' for {token_short} - treating as NOTHING", "yellow")
+                action = "NOTHING"
 
             # Check if we have a position
             current_position = n.get_token_balance_usd(token)
@@ -906,6 +921,9 @@ Example format:
                         # SHORT MODE ENABLED - Open short position
                         # Get account balance and calculate position size
                         account_balance = get_account_balance()
+                        if account_balance <= 0:
+                            cprint(f"❌ Account balance is 0 or unavailable - skipping short for {token_short}", "white", "on_red")
+                            continue
                         position_size = calculate_position_size(account_balance)
 
                         cprint(f"📉 SELL signal with no position - OPENING SHORT", "white", "on_red")
@@ -933,6 +951,9 @@ Example format:
                     else:
                         # Simple mode: Open position at MAX_POSITION_PERCENTAGE
                         account_balance = get_account_balance()
+                        if account_balance <= 0:
+                            cprint(f"❌ Account balance is 0 or unavailable - skipping entry for {token_short}", "white", "on_red")
+                            continue
                         position_size = calculate_position_size(account_balance)
 
                         cprint(f"💰 Opening position at MAX_POSITION_PERCENTAGE", "white", "on_green")
@@ -1058,7 +1079,10 @@ Example format:
         try:
             current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             cprint(f"\n⏰ AI Agent Run Starting at {current_time}", "white", "on_green")
-            
+
+            # Reset recommendations so stale signals from previous cycles are never re-executed
+            self.recommendations_df = pd.DataFrame(columns=['token', 'action', 'confidence', 'reasoning'])
+
             # Collect OHLCV data for all tokens using this agent's config
             # Use SYMBOLS for Aster/HyperLiquid, MONITORED_TOKENS for Solana
             if EXCHANGE in ["ASTER", "HYPERLIQUID"]:
@@ -1089,11 +1113,12 @@ Example format:
                 cprint(f"\n🤖 AI Agent Analyzing Token: {token}", "white", "on_green")
                 
                 # Include strategy signals in analysis if available
+                token_signals = None
                 if strategy_signals and token in strategy_signals:
-                    cprint(f"📊 Including {len(strategy_signals[token])} strategy signals in analysis", "cyan")
-                    data['strategy_signals'] = strategy_signals[token]
-                
-                analysis = self.analyze_market_data(token, data)
+                    token_signals = strategy_signals[token]
+                    cprint(f"📊 Including {len(token_signals)} strategy signals in analysis", "cyan")
+
+                analysis = self.analyze_market_data(token, data, token_signals)
                 print(f"\n📈 Analysis for contract: {token}")
                 print(analysis)
                 print("\n" + "="*50 + "\n")
@@ -1175,8 +1200,12 @@ def main():
             if has_position and monitored_token:
                 # We have an open position - monitor P&L instead of sleeping
                 cprint(f"\n🔍 Open position detected for {monitored_token}", "yellow", attrs=['bold'])
-                monitor_position_pnl(monitored_token)
-                cprint(f"\n✅ Position closed. Resuming normal trading cycle...", "green")
+                if monitor_position_pnl(monitored_token):
+                    cprint(f"\n✅ Position closed. Resuming normal trading cycle...", "green")
+                else:
+                    # Monitoring failed - wait before retrying to avoid back-to-back swarm cycles
+                    cprint(f"\n⚠️ Position monitoring failed. Retrying in {SLEEP_BETWEEN_RUNS_MINUTES} min...", "yellow")
+                    time.sleep(INTERVAL)
             else:
                 # No open position - sleep until next cycle
                 next_run = datetime.now() + timedelta(minutes=SLEEP_BETWEEN_RUNS_MINUTES)
