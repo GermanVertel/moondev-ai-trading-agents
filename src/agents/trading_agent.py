@@ -466,12 +466,16 @@ def get_account_balance():
                 cprint(f"   Available: ${balance_dict.get('available', 0):,.2f} | Unrealized PnL: ${balance_dict.get('unrealized_pnl', 0):,.2f}", "white")
             else:  # HYPERLIQUID
                 account = n._get_account_from_env()
-                balance = n.get_account_value(account)  # HyperLiquid USD balance
-                if balance == 0:
-                    # Unified Account: collateral lives in the spot USDC balance and the perps account value stays 0
-                    spot_state = n._get_info().spot_user_state(account.address)
+                info = n._get_info()
+                abstraction = info.post("/info", {"type": "userAbstraction", "user": account.address})
+                if abstraction in ("unifiedAccount", "portfolioMargin"):
+                    # Unified Account: the spot USDC total is the whole equity (it already includes the margin on hold);
+                    # the perps account value only shows the margin in use, so it must not be used
+                    spot_state = info.spot_user_state(account.address)
                     balance = sum(float(b['total']) for b in spot_state['balances'] if b['coin'] == 'USDC')
-                    cprint(f"   ℹ️  Perps balance is 0 - using spot USDC (Unified Account)", "white")
+                    cprint(f"   ℹ️  {abstraction}: using spot USDC total", "white")
+                else:
+                    balance = n.get_account_value(account)  # HyperLiquid USD balance
                 cprint(f"💰 {EXCHANGE} Account Balance: ${balance:,.2f} USD", "cyan")
 
             return balance

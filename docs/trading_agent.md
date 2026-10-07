@@ -75,8 +75,10 @@ Review of `src/agents/trading_agent.py` and the Solana entry path in `src/nice_f
 
 After a short is closed by a BUY signal, a new long is only opened in the next cycle if the signal is still BUY. With `LONG_ONLY = True` (and on Solana) nothing changes.
 
-### HyperLiquid Unified Account (follow-up)
-On a Unified Account the collateral is the spot USDC balance and the perps `accountValue` / `withdrawable` stay at 0, so the agent read a balance of 0. `get_account_balance` now falls back to the spot USDC total when the perps value is 0. Limitation: with an open perps position and a unified account, the spot USDC total includes the margin on hold.
+### HyperLiquid Unified Account and testnet (follow-up)
+- On a Unified Account the collateral is the spot USDC balance. The perps `accountValue` stays at 0 without positions and, with one open, only shows the margin in use (a part of the same money, not extra). `get_account_balance` now detects `unifiedAccount` / `portfolioMargin` (`userAbstraction`) and uses the **spot USDC total**, which is the whole equity.
+- `nice_funcs_hyperliquid.py` accepts `HL_TESTNET=true` (environment variable) to use the HyperLiquid testnet with mock funds. Mainnet stays the default. Example: `HL_TESTNET=true python src/agents/trading_agent.py`. The testnet account is funded from the faucet in the testnet app.
+- Verified on testnet with real orders: BUY opens a long, the monitor closes it on take profit, SELL closes a long, SELL with no position opens a short (`LONG_ONLY = False`), SELL keeps a short and BUY closes it. The balance read with an open position equals the full equity.
 
 Note: HyperLiquid enforces a $10 minimum order and `market_buy` raises smaller orders to $11. On small accounts this overrides `MAX_POSITION_PERCENTAGE` (e.g. 30% of $12.41 = $3.72, but the order sent is $11).
 
