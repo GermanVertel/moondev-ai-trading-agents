@@ -361,12 +361,15 @@ def close_futures_position(token, position, position_size):
         n.limit_buy(token, position_size, slippage=0, leverage=LEVERAGE)   # short
 
 
-def monitor_position_pnl(token, check_interval=PNL_CHECK_INTERVAL):
+def monitor_position_pnl(token, check_interval=PNL_CHECK_INTERVAL, run_cycle=None, cycle_interval=None):
     """Monitor position P&L and exit if stop loss or take profit hit
 
     Args:
         token: Token symbol to monitor
         check_interval: Seconds between P&L checks
+        run_cycle: Optional function that runs a full trading cycle (analysis + exits)
+        cycle_interval: Seconds between those cycles while the position is open, so a SELL signal
+            can close it before stop loss / take profit
 
     Returns:
         bool: True if position closed, False if still open
@@ -374,6 +377,7 @@ def monitor_position_pnl(token, check_interval=PNL_CHECK_INTERVAL):
     try:
         cprint(f"\n👁️  Monitoring {token} position for P&L targets...", "cyan", attrs=['bold'])
         cprint(f"   Stop Loss: -{STOP_LOSS_PERCENTAGE}% | Take Profit: +{TAKE_PROFIT_PERCENTAGE}%", "white")
+        last_cycle = time.time()
 
         while True:
             # Get current position
@@ -438,6 +442,12 @@ def monitor_position_pnl(token, check_interval=PNL_CHECK_INTERVAL):
                     close_futures_position(token, position, position_size)
 
                     return True
+
+            # Re-analyze periodically: a SELL signal (or a close from handle_exits) is detected on the next check
+            if run_cycle and cycle_interval and time.time() - last_cycle >= cycle_interval:
+                cprint(f"\n🔄 Position open - running a trading cycle to re-evaluate...", "cyan", attrs=['bold'])
+                run_cycle()
+                last_cycle = time.time()
 
             # Sleep before next check
             time.sleep(check_interval)
@@ -1288,7 +1298,7 @@ def main():
             if has_position and monitored_token:
                 # We have an open position - monitor P&L instead of sleeping
                 cprint(f"\n🔍 Open position detected for {monitored_token}", "yellow", attrs=['bold'])
-                if monitor_position_pnl(monitored_token):
+                if monitor_position_pnl(monitored_token, run_cycle=agent.run_trading_cycle, cycle_interval=INTERVAL):
                     cprint(f"\n✅ Position closed. Resuming normal trading cycle...", "green")
                 else:
                     # Monitoring failed - wait before retrying to avoid back-to-back swarm cycles
