@@ -34,9 +34,8 @@ try:
     from aster_api import AsterAPI  # type: ignore
     from aster_funcs import AsterFuncs  # type: ignore
 except ImportError as e:
-    cprint(f"❌ Failed to import Aster modules: {e}", "red")
-    cprint(f"Make sure Aster-Dex-Trading-Bots exists at: {aster_bots_path}", "yellow")
-    sys.exit(1)
+    AsterAPI = None
+    AsterFuncs = None
 
 # Load environment variables
 load_dotenv()
@@ -45,15 +44,12 @@ load_dotenv()
 ASTER_API_KEY = os.getenv('ASTER_API_KEY')
 ASTER_API_SECRET = os.getenv('ASTER_API_SECRET')
 
-# Verify API keys
-if not ASTER_API_KEY or not ASTER_API_SECRET:
-    cprint("❌ ASTER API keys not found in .env file!", "red")
-    cprint("Please add ASTER_API_KEY and ASTER_API_SECRET to your .env file", "yellow")
-    sys.exit(1)
-
-# Initialize API (global instance)
-api = AsterAPI(ASTER_API_KEY, ASTER_API_SECRET)
-funcs = AsterFuncs(api)
+if ASTER_API_KEY and ASTER_API_SECRET and AsterAPI:
+    api = AsterAPI(ASTER_API_KEY, ASTER_API_SECRET)
+    funcs = AsterFuncs(api)
+else:
+    api = None
+    funcs = None
 
 # ============================================================================
 # CONFIGURATION
