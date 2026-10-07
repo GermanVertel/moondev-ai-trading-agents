@@ -307,6 +307,9 @@ load_dotenv()
 # HELPER FUNCTIONS
 # ============================================================================
 
+# SOLANA only: USD value of each position right after entry, used as the baseline for stop loss / take profit
+ENTRY_VALUE_USD = {}
+
 _HL_ACCOUNT = None
 
 def _hl_account():
@@ -386,8 +389,31 @@ def monitor_position_pnl(token, check_interval=PNL_CHECK_INTERVAL):
                 position_usd = get_position_usd(token)
                 if position_usd == 0:
                     cprint(f"✅ Position closed for {token}", "green")
+                    ENTRY_VALUE_USD.pop(token, None)
                     return True
                 position = {"position_amount": position_usd}  # Simplified for Solana
+
+                # Solana has no exchange-side P&L: compare current USD value to the value at entry.
+                # If the entry wasn't recorded (e.g. agent restarted), the baseline is the value now.
+                entry_usd = ENTRY_VALUE_USD.setdefault(token, position_usd)
+                pnl_pct = (position_usd / entry_usd - 1) * 100
+                cprint(f"📊 Position: ${position_usd:,.2f} (entry ${entry_usd:,.2f}) | P&L: {pnl_pct:+.2f}%", "cyan")
+
+                if pnl_pct <= -STOP_LOSS_PERCENTAGE or pnl_pct >= TAKE_PROFIT_PERCENTAGE:
+                    if pnl_pct <= -STOP_LOSS_PERCENTAGE:
+                        cprint(f"🛑 STOP LOSS HIT! P&L: {pnl_pct:.2f}% (target: -{STOP_LOSS_PERCENTAGE}%)", "red", attrs=['bold'])
+                    else:
+                        cprint(f"🎯 TAKE PROFIT HIT! P&L: {pnl_pct:.2f}% (target: +{TAKE_PROFIT_PERCENTAGE}%)", "green", attrs=['bold'])
+
+                    cprint(f"🔄 Closing position with chunk_kill (${max_usd_order_size} chunks)...", "yellow")
+                    close_position_full(token)
+
+                    # chunk_kill returns nothing: verify the position is really gone
+                    if get_position_usd(token) > 0.1:
+                        cprint(f"⚠️ Position still open after chunk_kill - will retry", "yellow")
+                        return False
+                    ENTRY_VALUE_USD.pop(token, None)
+                    return True
 
             if not position or (EXCHANGE in ["ASTER", "HYPERLIQUID"] and position.get('position_amount', 0) == 0):
                 cprint(f"✅ No position found for {token}", "green")
@@ -947,6 +973,7 @@ Example format:
                     try:
                         cprint(f"📉 Executing chunk_kill (${max_usd_order_size} chunks)...", "yellow")
                         close_position_full(token)
+                        ENTRY_VALUE_USD.pop(token, None)
                         cprint(f"✅ Position closed successfully!", "white", "on_green")
                     except Exception as e:
                         cprint(f"❌ Error closing position: {str(e)}", "white", "on_red")
@@ -1026,6 +1053,7 @@ Example format:
                                 else:
                                     position_usd = get_position_usd(token)
                                     if position_usd > 0:
+                                        ENTRY_VALUE_USD[token] = position_usd
                                         cprint(f"📊 Confirmed: ${position_usd:,.2f} position", "green", attrs=['bold'])
                                     else:
                                         cprint(f"⚠️  Warning: Position verification failed - no position found!", "yellow")
