@@ -967,11 +967,21 @@ Example format:
             cprint(f"{'='*60}", "cyan")
 
             if current_position > 0:
-                # We have a position - take action based on signal
-                if action == "SELL":
-                    cprint(f"🚨 SELL signal with position - CLOSING POSITION", "white", "on_red")
+                # We have a position - the signal that closes it depends on its direction:
+                # LONG closes on SELL, SHORT (Aster/HyperLiquid, LONG_ONLY = False) closes on BUY
+                is_short = False
+                if EXCHANGE in ["ASTER", "HYPERLIQUID"]:
+                    futures_position = get_futures_position(token)
+                    is_short = bool(futures_position) and futures_position['position_amount'] < 0
+
+                direction = "SHORT" if is_short else "LONG"
+                close_action = "BUY" if is_short else "SELL"
+                cprint(f"📍 Open position direction: {direction}", "white")
+
+                if action == close_action:
+                    cprint(f"🚨 {action} signal against {direction} position - CLOSING POSITION", "white", "on_red")
                     try:
-                        cprint(f"📉 Executing chunk_kill (${max_usd_order_size} chunks)...", "yellow")
+                        cprint(f"📉 Closing {direction} position...", "yellow")
                         close_position_full(token)
                         ENTRY_VALUE_USD.pop(token, None)
                         cprint(f"✅ Position closed successfully!", "white", "on_green")
@@ -980,8 +990,8 @@ Example format:
                 elif action == "NOTHING":
                     cprint(f"⏸️  DO NOTHING signal - HOLDING POSITION", "white", "on_blue")
                     cprint(f"💎 Maintaining ${current_position:.2f} position", "cyan")
-                else:  # BUY
-                    cprint(f"✅ BUY signal - KEEPING POSITION", "white", "on_green")
+                else:  # signal agrees with the open position
+                    cprint(f"✅ {action} signal agrees with {direction} - KEEPING POSITION", "white", "on_green")
                     cprint(f"💎 Maintaining ${current_position:.2f} position", "cyan")
             else:
                 # No position - explain what this means
