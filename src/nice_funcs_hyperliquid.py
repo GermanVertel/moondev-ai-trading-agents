@@ -157,6 +157,19 @@ def get_position(symbol, account):
 
     return positions, im_in_pos, pos_size, pos_sym, entry_px, pnl_perc, is_long
 
+def _check_order(order_result, label="order"):
+    """Raise if HyperLiquid did not accept the order.
+
+    The API answers status "ok" even when the order itself is rejected (no margin, IOC not matched...):
+    the real result is in response.data.statuses, each one "filled", "resting" or {"error": ...}.
+    """
+    if not isinstance(order_result, dict) or order_result.get('status') != 'ok':
+        raise RuntimeError(f"{label} rejected: {order_result}")
+    for status in order_result['response']['data']['statuses']:
+        if isinstance(status, dict) and 'error' in status:
+            raise RuntimeError(f"{label} rejected: {status['error']}")
+    return order_result
+
 def set_leverage(symbol, leverage, account):
     """Set leverage for a symbol"""
     print(f'Setting leverage for {symbol} to {leverage}x')
@@ -277,6 +290,7 @@ def kill_switch(symbol, account):
 
     # Place reduce-only order to close
     order_result = exchange.order(symbol, side, abs_size, close_price, {"limit": {"tif": "Ioc"}}, reduce_only=True)
+    _check_order(order_result, "kill_switch")
 
     print(colored('✅ Kill switch executed - position closed', 'green'))
     return order_result
@@ -867,7 +881,8 @@ def ai_entry(symbol, amount, max_chunk_size=None, leverage=DEFAULT_LEVERAGE, acc
     set_leverage(symbol, leverage, account)
 
     result = market_buy(symbol, amount, account)
-    return result is not None
+    _check_order(result, "market_buy")
+    return True
 
 def open_short(token, amount, slippage=None, leverage=DEFAULT_LEVERAGE, account=None):
     """Open SHORT position explicitly
@@ -918,6 +933,7 @@ def open_short(token, amount, slippage=None, leverage=DEFAULT_LEVERAGE, account=
         # Place market sell to open short
         exchange = Exchange(account, API_URL)
         order_result = exchange.order(token, False, pos_size, sell_price, {"limit": {"tif": "Ioc"}}, reduce_only=False)
+        _check_order(order_result, "open_short")
 
         print(colored(f'✅ Short position opened!', 'green'))
         return order_result

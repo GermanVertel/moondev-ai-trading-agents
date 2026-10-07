@@ -82,9 +82,15 @@ After a short is closed by a BUY signal, a new long is only opened in the next c
 
 Note: HyperLiquid enforces a $10 minimum order and `market_buy` raises smaller orders to $11. On small accounts this overrides `MAX_POSITION_PERCENTAGE` (e.g. 30% of $12.41 = $3.72, but the order sent is $11).
 
+### HyperLiquid order results (follow-up)
+HyperLiquid answers `status: "ok"` even when the order itself is rejected; the real result is in `response.data.statuses` (`filled`, `resting` or `{"error": ...}`). `ai_entry` used to return `result is not None` and `open_short` returned the raw response, so a rejected order was reported as opened.
+- New `_check_order()` in `nice_funcs_hyperliquid.py` raises `RuntimeError` with the exchange message when the order is not accepted.
+- Used by `ai_entry`, `open_short` and `kill_switch` (a rejected close now surfaces, so the monitor retries instead of assuming the position is closed).
+- Verified on testnet: a rejected order now raises `Insufficient margin to place order`; normal long and short entries and closes still work.
+- Note: an order larger than the available margin is not always rejected; HyperLiquid can fill it **partially** up to the margin (a $5M test order filled about $950 on testnet).
+
 ### Known issues NOT fixed
 - Solana: while a position is open, `monitor_position_pnl` blocks the loop, so no new AI analysis (and no SELL signals) happen until the position closes by stop loss / take profit.
-- HyperLiquid: `ai_entry` and `open_short` in `nice_funcs_hyperliquid.py` treat any non-`None` order response as success, even if the exchange rejected the order. The agent verifies the position afterwards on BUY entries, but not on shorts.
 - `ai_entry` (Solana) takes `max_usd_order_size`, `slippage`, `orders_per_open` and `tx_sleep` from `src/config.py`, not from the top of `trading_agent.py`. The agent's own `max_usd_order_size` and `slippage` only affect `chunk_kill`.
 - `ai_entry` has no cap of its own: the size is decided by the caller (`calculate_position_size`, up to `MAX_POSITION_PERCENTAGE` of the USDC balance, bought in $3 chunks).
 - Unrelated to this agent, in `nice_funcs.py`: `pnl_close` uses `stop_loss_percentage` (config defines `stop_loss_perctentage`, typo) and `close_all_positions` uses an undefined `dont_trade_list`.
