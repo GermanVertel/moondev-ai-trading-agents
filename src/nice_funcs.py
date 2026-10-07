@@ -17,7 +17,6 @@ import datetime
 import pandas_ta as ta
 from datetime import datetime, timedelta
 from termcolor import colored, cprint
-import solders
 from dotenv import load_dotenv
 import shutil
 import atexit
@@ -1065,26 +1064,27 @@ def ai_entry(symbol, amount):
     """AI agent entry function for Moon Dev's trading system 🤖"""
     cprint("🤖 Moon Dev's AI Trading Agent initiating position entry...", "white", "on_blue")
     
-    # amount passed in is the target allocation (up to 30% of usd_size)
-    target_size = amount  # This could be up to $3 (30% of $10)
+    # amount passed in is the total target position in USD. The caller decides the size
+    # (trading_agent.py caps it with MAX_POSITION_PERCENTAGE of the USDC balance)
+    target_size = amount
     
     pos = get_position(symbol)
     price = token_price(symbol)
     pos_usd = pos * price
     
-    cprint(f"🎯 Target allocation: ${target_size:.2f} USD (max 30% of ${usd_size})", "white", "on_blue")
+    cprint(f"🎯 Target allocation: ${target_size:.2f} USD", "white", "on_blue")
     cprint(f"📊 Current position: ${pos_usd:.2f} USD", "white", "on_blue")
     
     # Check if we're already at or above target
     if pos_usd >= (target_size * 0.97):
         cprint("✋ Position already at or above target size!", "white", "on_blue")
-        return
+        return True
         
     # Calculate how much more we need to buy
     size_needed = target_size - pos_usd
     if size_needed <= 0:
         cprint("🛑 No additional size needed", "white", "on_blue")
-        return
+        return True
         
     # For order execution, we'll chunk into max_usd_order_size pieces
     if size_needed > max_usd_order_size: 
@@ -1097,7 +1097,10 @@ def ai_entry(symbol, amount):
     
     cprint(f"💫 Entry chunk size: {chunk_size} (chunking ${size_needed:.2f} into ${max_usd_order_size:.2f} orders)", "white", "on_blue")
 
-    while pos_usd < (target_size * 0.97):
+    max_entry_loops = 15  # Safety cap: never keep buying forever if the position doesn't update
+    entry_loops = 0
+    while pos_usd < (target_size * 0.97) and entry_loops < max_entry_loops:
+        entry_loops += 1
         cprint(f"🤖 AI Agent executing entry for {symbol[:8]}...", "white", "on_blue")
         print(f"Position: {round(pos,2)} | Price: {round(price,8)} | USD Value: ${round(pos_usd,2)}")
 
@@ -1161,9 +1164,14 @@ def ai_entry(symbol, amount):
 
             except:
                 cprint("❌ AI Agent encountered critical error, manual intervention needed", "white", "on_red")
-                return
+                return False
 
-    cprint("✨ AI Agent completed position entry", "white", "on_blue")
+    if pos_usd >= (target_size * 0.97):
+        cprint("✨ AI Agent completed position entry", "white", "on_blue")
+        return True
+
+    cprint(f"⚠️ Entry stopped after {entry_loops} loops with position ${pos_usd:.2f} of ${target_size:.2f} target", "white", "on_red")
+    return False
 
 def get_token_balance_usd(token_mint_address):
     """Get the USD value of a token position for Moon Dev's wallet 🌙"""

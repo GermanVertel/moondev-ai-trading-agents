@@ -118,13 +118,15 @@ class OpenRouterModel(BaseModel):
         )
 
         # Test the connection
-        test_response = self.client.chat.completions.create(
-            model=self.model_name,
-            messages=[{"role": "user", "content": "Hello"}],
-            max_tokens=50
-        )
-
-        cprint(f"✨ Initialized {self.model_name}", "green")
+        try:
+            test_response = self.client.chat.completions.create(
+                model=self.model_name,
+                messages=[{"role": "user", "content": "Hello"}],
+                max_tokens=50
+            )
+            cprint(f"✨ Initialized {self.model_name}", "green")
+        except Exception as e:
+            cprint(f"⚠️ Initialized {self.model_name} (ping test: {str(e)[:50]})", "yellow")
 
     def generate_response(self, system_prompt, user_content, temperature=0.7, max_tokens=None):
         """Generate response with no caching"""

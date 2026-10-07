@@ -47,15 +47,18 @@ class ClaudeModel(BaseModel):
     ) -> ModelResponse:
         """Generate a response using Claude"""
         try:
-            response = self.client.messages.create(
-                model=self.model_name,
-                max_tokens=max_tokens,
-                temperature=temperature,
-                system=system_prompt,
-                messages=[
+            create_params = {
+                "model": self.model_name,
+                "max_tokens": max_tokens,
+                "system": system_prompt,
+                "messages": [
                     {"role": "user", "content": user_content}
                 ]
-            )
+            }
+            if temperature is not None:
+                create_params["extra_body"] = {"temperature": temperature}
+            
+            response = self.client.messages.create(**create_params)
             
             return ModelResponse(
                 content=response.content[0].text.strip(),
