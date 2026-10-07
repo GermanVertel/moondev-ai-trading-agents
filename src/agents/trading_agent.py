@@ -81,7 +81,7 @@ Built with love by Moon Dev 🚀
 # ============================================================================
 
 # 🏦 EXCHANGE SELECTION
-EXCHANGE = "SOLANA"  # Options: "ASTER", "HYPERLIQUID", "SOLANA"
+EXCHANGE = "HYPERLIQUID"  # Options: "ASTER", "HYPERLIQUID", "SOLANA"
                      # - "ASTER" = Aster DEX futures (supports long/short)
                      # - "HYPERLIQUID" = HyperLiquid perpetuals (supports long/short)
                      # - "SOLANA" = Solana on-chain DEX (long only)
@@ -106,9 +106,9 @@ LONG_ONLY = True  # True = Long positions only (works on all exchanges)
                   #
                   # Note: Solana is always LONG_ONLY (exchange limitation)
 
-# 🤖 SINGLE MODEL SETTINGS (only used when USE_SWARM_MODE = False)
-AI_MODEL_TYPE = 'xai'  # Options: 'groq', 'openai', 'claude', 'deepseek', 'xai', 'ollama'
-AI_MODEL_NAME = None   # None = use default, or specify: 'grok-4-fast-reasoning', 'claude-3-5-sonnet-latest', etc.
+# 🤖 SINGLE / ALLOCATION MODEL SETTINGS
+AI_MODEL_TYPE = 'openrouter'  # Options: 'openrouter', 'groq', 'openai', 'claude', 'deepseek', 'xai', 'ollama'
+AI_MODEL_NAME = 'google/gemini-2.5-flash'  # Modelo rápido y económico en OpenRouter
 AI_TEMPERATURE = 0.7   # Creativity vs precision (0-1)
 AI_MAX_TOKENS = 1024   # Max tokens for AI response
 
@@ -118,21 +118,15 @@ USE_PORTFOLIO_ALLOCATION = False # True = Use AI for portfolio allocation across
 
 CASH_PERCENTAGE = 20             # Minimum % of portfolio kept as cash buffer (used by AI portfolio allocation)
 
-MAX_POSITION_PERCENTAGE = 90     # % of account balance to use as MARGIN per position (0-100)
+MAX_POSITION_PERCENTAGE = 30     # % of account balance to use as MARGIN per position (0-100)
                                  # How it works per exchange:
                                  # - ASTER/HYPERLIQUID: % of balance used as MARGIN (then multiplied by leverage)
-                                 #   Example: $100 balance, 90% = $90 margin
-                                 #            At 90x leverage = $90 × 90 = $8,100 notional position
+                                 #   Example: $100 balance, 30% = $30 margin
+                                 #            At 1x leverage = $30 × 1 = $30 notional position (Spot equivalent)
                                  # - SOLANA: Uses % of USDC balance directly (no leverage)
-                                 #   Example: 100 USDC, 90% = 90 USDC position
 
-LEVERAGE = 9                    # Leverage multiplier (1-125x on Aster/HyperLiquid)
-                                 # Higher leverage = bigger position with same margin, higher liquidation risk
-                                 # Examples with $100 margin:
-                                 #           5x = $100 margin → $500 notional position
-                                 #          10x = $100 margin → $1,000 notional position
-                                 #          90x = $100 margin → $9,000 notional position
-                                 # Note: Only applies to Aster and HyperLiquid (ignored on Solana)
+LEVERAGE = 1                    # Leverage multiplier (1-125x on Aster/HyperLiquid)
+                                 # 1x = Spot equivalent (sin riesgo de liquidación por apalancamiento)
 
 # Stop Loss & Take Profit
 STOP_LOSS_PERCENTAGE = 5.0       # % loss to trigger stop loss exit (e.g., 5.0 = -5%)
@@ -473,6 +467,11 @@ def get_account_balance():
             else:  # HYPERLIQUID
                 account = n._get_account_from_env()
                 balance = n.get_account_value(account)  # HyperLiquid USD balance
+                if balance == 0:
+                    # Unified Account: collateral lives in the spot USDC balance and the perps account value stays 0
+                    spot_state = n._get_info().spot_user_state(account.address)
+                    balance = sum(float(b['total']) for b in spot_state['balances'] if b['coin'] == 'USDC')
+                    cprint(f"   ℹ️  Perps balance is 0 - using spot USDC (Unified Account)", "white")
                 cprint(f"💰 {EXCHANGE} Account Balance: ${balance:,.2f} USD", "cyan")
 
             return balance

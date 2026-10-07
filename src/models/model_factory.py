@@ -90,10 +90,34 @@ class ModelFactory:
     
     def get_model(self, model_type: str, model_name: Optional[str] = None) -> Optional[BaseModel]:
         """Get a specific model instance"""
-        if model_type not in self.MODEL_IMPLEMENTATIONS or model_type not in self._models:
+        if model_type not in self.MODEL_IMPLEMENTATIONS:
             return None
 
-        model = self._models[model_type]
+        # If model_type is not yet initialized in self._models, try initializing it on-demand
+        if model_type not in self._models:
+            if model_type == "ollama":
+                try:
+                    target_name = model_name or self.DEFAULT_MODELS["ollama"]
+                    instance = self.MODEL_IMPLEMENTATIONS["ollama"](model_name=target_name)
+                    self._models["ollama"] = instance
+                except:
+                    return None
+            else:
+                key_name = self._get_api_key_mapping().get(model_type)
+                api_key = os.getenv(key_name) if key_name else None
+                if not api_key:
+                    return None
+                try:
+                    target_name = model_name or self.DEFAULT_MODELS.get(model_type)
+                    instance = self.MODEL_IMPLEMENTATIONS[model_type](api_key, model_name=target_name)
+                    self._models[model_type] = instance
+                except:
+                    return None
+
+        model = self._models.get(model_type)
+        if not model:
+            return None
+
         if model_name and model.model_name != model_name:
             try:
                 # Special handling for Ollama models

@@ -75,6 +75,11 @@ Review of `src/agents/trading_agent.py` and the Solana entry path in `src/nice_f
 
 After a short is closed by a BUY signal, a new long is only opened in the next cycle if the signal is still BUY. With `LONG_ONLY = True` (and on Solana) nothing changes.
 
+### HyperLiquid Unified Account (follow-up)
+On a Unified Account the collateral is the spot USDC balance and the perps `accountValue` / `withdrawable` stay at 0, so the agent read a balance of 0. `get_account_balance` now falls back to the spot USDC total when the perps value is 0. Limitation: with an open perps position and a unified account, the spot USDC total includes the margin on hold.
+
+Note: HyperLiquid enforces a $10 minimum order and `market_buy` raises smaller orders to $11. On small accounts this overrides `MAX_POSITION_PERCENTAGE` (e.g. 30% of $12.41 = $3.72, but the order sent is $11).
+
 ### Known issues NOT fixed
 - Solana: while a position is open, `monitor_position_pnl` blocks the loop, so no new AI analysis (and no SELL signals) happen until the position closes by stop loss / take profit.
 - HyperLiquid: `ai_entry` and `open_short` in `nice_funcs_hyperliquid.py` treat any non-`None` order response as success, even if the exchange rejected the order. The agent verifies the position afterwards on BUY entries, but not on shorts.

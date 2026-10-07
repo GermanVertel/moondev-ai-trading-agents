@@ -17,7 +17,6 @@ import datetime
 import pandas_ta as ta
 from datetime import datetime, timedelta
 from termcolor import colored, cprint
-import solders
 from dotenv import load_dotenv
 import shutil
 import atexit
