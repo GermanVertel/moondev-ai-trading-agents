@@ -307,6 +307,63 @@ load_dotenv()
 # HELPER FUNCTIONS
 # ============================================================================
 
+_HL_ACCOUNT = None
+
+def _hl_account():
+    """HyperLiquid account loaded once from the environment"""
+    global _HL_ACCOUNT
+    if _HL_ACCOUNT is None:
+        _HL_ACCOUNT = n._get_account_from_env()
+    return _HL_ACCOUNT
+
+
+def get_futures_position(token):
+    """Position as a dict for ASTER/HYPERLIQUID, or None if there is no position
+
+    Keys: position_amount (negative = short), entry_price, mark_price, pnl, pnl_percentage, is_long
+    """
+    if EXCHANGE == "ASTER":
+        return n.get_position(token)
+
+    # HYPERLIQUID returns a tuple and needs the account
+    positions, im_in_pos, pos_size, _, entry_px, pnl_perc, is_long = n.get_position(token, _hl_account())
+    if not im_in_pos:
+        return None
+    return {
+        'position_amount': float(pos_size),
+        'entry_price': entry_px,
+        'mark_price': n.get_current_price(token),
+        'pnl': float(positions[0].get('unrealizedPnl', 0)),
+        'pnl_percentage': pnl_perc,
+        'is_long': is_long,
+    }
+
+
+def get_position_usd(token):
+    """USD value of the current position for the selected exchange (0 if none)"""
+    if EXCHANGE == "HYPERLIQUID":
+        return n.get_token_balance_usd(token, _hl_account())
+    return n.get_token_balance_usd(token)
+
+
+def close_position_full(token):
+    """Close the whole position for the selected exchange"""
+    if EXCHANGE == "HYPERLIQUID":
+        n.kill_switch(token, _hl_account())  # reduce-only IOC order
+    else:
+        n.chunk_kill(token, max_usd_order_size, slippage)
+
+
+def close_futures_position(token, position, position_size):
+    """Close an Aster/HyperLiquid position (used by stop loss / take profit)"""
+    if EXCHANGE == "HYPERLIQUID":
+        n.kill_switch(token, _hl_account())
+    elif position['position_amount'] > 0:
+        n.limit_sell(token, position_size, slippage=0, leverage=LEVERAGE)  # long
+    else:
+        n.limit_buy(token, position_size, slippage=0, leverage=LEVERAGE)   # short
+
+
 def monitor_position_pnl(token, check_interval=PNL_CHECK_INTERVAL):
     """Monitor position P&L and exit if stop loss or take profit hit
 
@@ -324,9 +381,9 @@ def monitor_position_pnl(token, check_interval=PNL_CHECK_INTERVAL):
         while True:
             # Get current position
             if EXCHANGE in ["ASTER", "HYPERLIQUID"]:
-                position = n.get_position(token)
+                position = get_futures_position(token)
             else:
-                position_usd = n.get_token_balance_usd(token)
+                position_usd = get_position_usd(token)
                 if position_usd == 0:
                     cprint(f"✅ Position closed for {token}", "green")
                     return True
@@ -349,13 +406,7 @@ def monitor_position_pnl(token, check_interval=PNL_CHECK_INTERVAL):
                     cprint(f"🛑 STOP LOSS HIT! P&L: {pnl_pct:.2f}% (target: -{STOP_LOSS_PERCENTAGE}%)", "red", attrs=['bold'])
                     cprint(f"🔄 Closing position with limit orders...", "yellow")
 
-                    # Close position using limit sell (for longs) or limit buy (for shorts)
-                    if position['position_amount'] > 0:
-                        # Long position - use limit_sell
-                        n.limit_sell(token, position_size, slippage=0, leverage=LEVERAGE)
-                    else:
-                        # Short position - use limit_buy
-                        n.limit_buy(token, position_size, slippage=0, leverage=LEVERAGE)
+                    close_futures_position(token, position, position_size)
 
                     return True
 
@@ -364,13 +415,7 @@ def monitor_position_pnl(token, check_interval=PNL_CHECK_INTERVAL):
                     cprint(f"🎯 TAKE PROFIT HIT! P&L: {pnl_pct:.2f}% (target: +{TAKE_PROFIT_PERCENTAGE}%)", "green", attrs=['bold'])
                     cprint(f"🔄 Closing position with limit orders...", "yellow")
 
-                    # Close position using limit sell (for longs) or limit buy (for shorts)
-                    if position['position_amount'] > 0:
-                        # Long position - use limit_sell
-                        n.limit_sell(token, position_size, slippage=0, leverage=LEVERAGE)
-                    else:
-                        # Short position - use limit_buy
-                        n.limit_buy(token, position_size, slippage=0, leverage=LEVERAGE)
+                    close_futures_position(token, position, position_size)
 
                     return True
 
@@ -843,7 +888,7 @@ Example format:
                 
                 try:
                     # Get current position value
-                    current_position = n.get_token_balance_usd(token)
+                    current_position = get_position_usd(token)
                     target_allocation = amount
                     
                     print(f"🎯 Target allocation: ${target_allocation:.2f} USD")
@@ -887,7 +932,7 @@ Example format:
                 action = "NOTHING"
 
             # Check if we have a position
-            current_position = n.get_token_balance_usd(token)
+            current_position = get_position_usd(token)
 
             cprint(f"\n{'='*60}", "cyan")
             cprint(f"🎯 Token: {token_short}", "cyan", attrs=['bold'])
@@ -901,7 +946,7 @@ Example format:
                     cprint(f"🚨 SELL signal with position - CLOSING POSITION", "white", "on_red")
                     try:
                         cprint(f"📉 Executing chunk_kill (${max_usd_order_size} chunks)...", "yellow")
-                        n.chunk_kill(token, max_usd_order_size, slippage)
+                        close_position_full(token)
                         cprint(f"✅ Position closed successfully!", "white", "on_green")
                     except Exception as e:
                         cprint(f"❌ Error closing position: {str(e)}", "white", "on_red")
@@ -932,7 +977,9 @@ Example format:
                             # Check if we have the open_short function (Aster/HyperLiquid)
                             if hasattr(n, 'open_short'):
                                 cprint(f"📉 Executing open_short (${position_size:,.2f})...", "yellow")
-                                n.open_short(token, position_size, slippage, leverage=LEVERAGE)
+                                short_result = n.open_short(token, position_size, slippage, leverage=LEVERAGE)
+                                if EXCHANGE == "HYPERLIQUID" and short_result is None:
+                                    raise RuntimeError("open_short returned no order (see error above)")
                             else:
                                 # Fallback to market_sell which should open short on futures exchanges
                                 cprint(f"📉 Executing market_sell to open short (${position_size:,.2f})...", "yellow")
@@ -969,7 +1016,7 @@ Example format:
                                 # Verify position was actually opened
                                 time.sleep(2)  # Brief delay for order to settle
                                 if EXCHANGE in ["ASTER", "HYPERLIQUID"]:
-                                    position = n.get_position(token)
+                                    position = get_futures_position(token)
                                     if position and position.get('position_amount', 0) != 0:
                                         pnl_pct = position.get('pnl_percentage', 0)
                                         position_usd = abs(position.get('position_amount', 0)) * position.get('mark_price', 0)
@@ -977,7 +1024,7 @@ Example format:
                                     else:
                                         cprint(f"⚠️  Warning: Position verification failed - no position found!", "yellow")
                                 else:
-                                    position_usd = n.get_token_balance_usd(token)
+                                    position_usd = get_position_usd(token)
                                     if position_usd > 0:
                                         cprint(f"📊 Confirmed: ${position_usd:,.2f} position", "green", attrs=['bold'])
                                     else:
@@ -1185,13 +1232,13 @@ def main():
 
             for token in SYMBOLS if EXCHANGE in ["ASTER", "HYPERLIQUID"] else MONITORED_TOKENS:
                 if EXCHANGE in ["ASTER", "HYPERLIQUID"]:
-                    position = n.get_position(token)
+                    position = get_futures_position(token)
                     if position and position.get('position_amount', 0) != 0:
                         has_position = True
                         monitored_token = token
                         break
                 else:
-                    position_usd = n.get_token_balance_usd(token)
+                    position_usd = get_position_usd(token)
                     if position_usd > 0:
                         has_position = True
                         monitored_token = token
