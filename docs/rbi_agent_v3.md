@@ -27,6 +27,7 @@ Están al inicio de `rbi_agent_v3.py`.
 | `TARGET_RETURN` | 50 | Retorno objetivo en % (`Return [%]`) |
 | `MAX_DEBUG_ITERATIONS` | 10 | Intentos de corregir errores de ejecución |
 | `MAX_OPTIMIZATION_ITERATIONS` | 10 | Rondas de optimización por idea |
+| `MAX_NO_TRADE_ITERATIONS` | 3 | Ejecuciones sin ninguna operación antes de descartar la idea |
 | `EXECUTION_TIMEOUT` | 300 | Segundos máximos por backtest |
 | `CONDA_ENV` | `tflow` | Entorno con que se ejecutan los backtests |
 
@@ -54,12 +55,15 @@ Carpeta: `src/data/rbi_v3/<MM_DD_YYYY>/`
 
 ## Limitaciones conocidas
 
-- **Sin comisión en el prompt:** el prompt de backtest no fija comisión, así que el modelo a menudo usa `commission=0`. Los retornos salen inflados. Para validar, usar `commission=0.0004` (0,04 % por lado). El subagente `rbi_agent_v3_claude` sí lo exige.
+- **Comisión solo por prompt:** el prompt de backtest y el de optimización exigen `commission=0.0004` (0,04 % por lado), pero no hay una comprobación en código. Si el modelo la ignora, los retornos salen inflados. Conviene revisar `commission=` en los `_BT.py` generados.
 - **Sin validación fuera de muestra:** el agente optimiza y reporta sobre el mismo periodo.
 - **Gráficos:** el modelo a veces llama a `bt.plot()` a pesar del prompt. Eso abre una pestaña del navegador y deja un HTML en la carpeta desde donde se ejecutó (la raíz del proyecto). No afecta a los resultados.
 - **Señales que no están en OHLCV:** si la idea depende de liquidaciones, whales o funding, el modelo usa un proxy de precio y volumen. El backtest no valida la señal original.
 - **Tiempo:** con unas 132.000 velas, un backtest puede acercarse al límite de 300 s.
 
 ## Problemas corregidos
+
+- **Bloque `multi_data_tester`:** el prompt obligaba a importar un módulo del repo `moon-dev-trading-bots`, que no existe aquí. Cada backtest fallaba una vez por `ModuleNotFoundError` y gastaba una iteración de debug. Se quitó del prompt: ahora el script debe ejecutarse solo y terminar con `stats = bt.run(); print(stats)`.
+- **Bucle de 0 trades:** si una estrategia no operaba, el debug la intentaba arreglar 10 veces sin éxito. Ahora se descarta tras `MAX_NO_TRADE_ITERATIONS` (3) ejecuciones sin operaciones.
 
 - **Ruta del CSV:** el prompt de backtest recibía `{PROJECT_ROOT}` sin sustituir. El modelo escribía `/src/data/...` y todos los backtests fallaban al leer el CSV. Ahora `create_backtest` sustituye la variable por la raíz del proyecto, y el prompt de debug recibe la ruta absoluta correcta (`BTC_CSV_PATH`).

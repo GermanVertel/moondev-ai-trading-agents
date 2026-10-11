@@ -126,6 +126,7 @@ MAX_DEBUG_ITERATIONS = 10  # Max times to try debugging before moving to optimiz
 MAX_OPTIMIZATION_ITERATIONS = 10  # Max times to KEEP OPTIMIZING until target is hit! 🎯
                                   # Agent runs this many optimization loops trying to achieve TARGET_RETURN
                                   # Higher = more chances to hit target, but takes longer
+MAX_NO_TRADE_ITERATIONS = 3  # Si la estrategia no abre ni una operación tras N ejecuciones, se descarta la idea (no gastar más debug)
 EXECUTION_TIMEOUT = 300  # 5 minutes
 
 # DeepSeek Configuration
@@ -208,6 +209,7 @@ Include:
 4. Risk management
 5. your size should be 1,000,000
 6. If you need indicators use TA lib or pandas TA.
+7. Backtest(...) MUST use commission=0.0004 (0.04% per side). NEVER use commission=0.
 
 IMPORTANT DATA HANDLING:
 1. Clean column names by removing spaces: data.columns = data.columns.str.strip().str.lower()
@@ -262,39 +264,9 @@ datetime, open, high, low, close, volume,
 
 Always add plenty of Moon Dev themed debug prints with emojis to make debugging easier! 🌙 ✨ 🚀
 
-MULTI-DATA TESTING REQUIREMENT:
-At the VERY END of your code (after all strategy definitions), you MUST add this EXACT block:
-
-```python
-# 🌙 MOON DEV'S MULTI-DATA TESTING FRAMEWORK 🚀
-# Tests this strategy on 25+ data sources automatically!
-if __name__ == "__main__":
-    import sys
-    import os
-
-    # Import the multi-data tester from Moon Dev's trading bots repo
-    # Note: Update this path to your moon-dev-trading-bots location if different
-    trading_bots_path = Path(__file__).parent.parent.parent.parent / "moon-dev-trading-bots" / "backtests"
-    sys.path.append(str(trading_bots_path))
-    from multi_data_tester import test_on_all_data
-
-    print("\\n" + "="*80)
-    print("🚀 MOON DEV'S MULTI-DATA BACKTEST - Testing on 25+ Data Sources!")
-    print("="*80)
-
-    # Test this strategy on all configured data sources
-    # This will test on: BTC, ETH, SOL (multiple timeframes), AAPL, TSLA, ES, NQ, GOOG, NVDA
-    results = test_on_all_data(YourStrategyClassName, 'YourStrategyName')
-
-    if results is not None:
-        print("\\n✅ Multi-data testing complete! Results saved in ./results/ folder")
-        print(f"📊 Tested on {len(results)} different data sources")
-    else:
-        print("\\n⚠️ No results generated - check for errors above")
-```
-
-IMPORTANT: Replace 'YourStrategyClassName' with your actual strategy class name!
-IMPORTANT: Replace 'YourStrategyName' with a descriptive name for the CSV output!
+STANDALONE SCRIPT RULE:
+Do NOT import multi_data_tester or any external testing framework (it does not exist in this project).
+The script must run standalone and end with: stats = bt.run(); print(stats); print(stats._strategy)
 
 FOR THE PYTHON BACKTESTING LIBRARY USE BACKTESTING.PY AND SEND BACK ONLY THE CODE, NO OTHER TEXT.
 ONLY SEND BACK CODE, NO OTHER TEXT.
@@ -440,6 +412,7 @@ IMPORTANT RULES:
 - Keep all Moon Dev debug prints
 - Maintain proper backtesting.py format
 - Use self.I() for all indicators
+- Keep commission=0.0004 in Backtest(...); never set commission to 0
 - Position sizes must be int or fraction (0-1)
 - Focus on REALISTIC improvements (no curve fitting!)
 - Explain your optimization changes in comments
@@ -907,6 +880,7 @@ def process_trading_idea_with_execution(idea: str) -> None:
     current_code = package_checked
     current_file = package_file
     error_history = []  # Track previous errors to detect loops
+    no_trade_iterations = 0  # Ejecuciones sin ninguna operación
     
     while debug_iteration < MAX_DEBUG_ITERATIONS:
         # Execute the current code
@@ -921,6 +895,12 @@ def process_trading_idea_with_execution(idea: str) -> None:
                 
                 # Analyze the specific no-trades issue
                 error_message = analyze_no_trades_issue(execution_result)
+
+                no_trade_iterations += 1
+                if no_trade_iterations >= MAX_NO_TRADE_ITERATIONS:
+                    print(f"\n❌ {no_trade_iterations} ejecuciones sin operaciones - idea descartada para no gastar más debug")
+                    print("🔄 Moving to next idea...")
+                    return
                 
                 debug_iteration += 1
                 

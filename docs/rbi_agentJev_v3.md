@@ -74,11 +74,14 @@ Al final del run, el agente imprime un resumen: cuántas ideas pasaron el filtro
 
 ## Limitaciones conocidas
 
-- **Heredadas de `rbi_agent_v3`:** no hay comisión en el prompt de backtest, no hay validación fuera de muestra y a veces el modelo llama a `bt.plot()`. Ver [rbi_agent_v3.md](rbi_agent_v3.md).
+- **Heredadas de `rbi_agent_v3`:** la comisión solo se exige por prompt (sin comprobación en código), no hay validación fuera de muestra y a veces el modelo llama a `bt.plot()`. Ver [rbi_agent_v3.md](rbi_agent_v3.md).
+- **Jev no predice si la estrategia opera:** en la corrida del 11/10/2026 aprobó 5 ideas y 4 no abrieron ni una operación en las 10 depuraciones; la única que operó dio +1,38 % frente a ~398 % de buy & hold. El filtro evalúa la descripción, no si las condiciones se cumplen en los datos.
 - **Jev no entiende los datos:** evalúa la descripción de la idea, no los resultados del backtest. Una idea puede pasar el filtro y aun así no ser rentable.
 - **Preguntas binarias:** un umbral de 0,6 en cada pregunta deja pasar ideas que están apenas por encima del corte. No es una medida de calidad.
 
 ## Problemas corregidos
+
+- **Bloque `multi_data_tester` y bucle de 0 trades:** igual que en `rbi_agent_v3` (se quitó el import inexistente y se descarta la idea tras 3 ejecuciones sin operaciones). Ver [rbi_agent_v3.md](rbi_agent_v3.md).
 
 - **Ruta del CSV:** igual que en `rbi_agent_v3`, el prompt de backtest recibía `{PROJECT_ROOT}` sin sustituir. Ahora se corrige en `create_backtest` y en el prompt de debug (`BTC_CSV_PATH`).
 - **Carpeta de ideas:** antes leía `src/data/rbi_pp_multi/ideas.txt`. Ahora lee `src/data/rbi_jev_v3/ideas.txt`, para no mezclar ideas con las de `research_agent.py`.
