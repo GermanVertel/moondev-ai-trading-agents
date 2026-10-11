@@ -127,6 +127,8 @@ DEEPSEEK_BASE_URL = "https://api.deepseek.com"
 TODAY_DATE = datetime.now().strftime("%m_%d_%Y")
 
 # Update data directory paths - V3 uses separate folder structure (PROJECT_ROOT already defined above)
+# Ruta real del CSV de datos (el prompt de backtest la recibe sustituyendo {PROJECT_ROOT})
+BTC_CSV_PATH = PROJECT_ROOT / "src" / "data" / "rbi" / "binance_15m" / "BTC-USDT-15m.csv"
 DATA_DIR = PROJECT_ROOT / "src" / "data" / "rbi_v3"  # NEW: Separate V3 folder
 TODAY_DIR = DATA_DIR / TODAY_DATE
 RESEARCH_DIR = TODAY_DIR / "research"
@@ -755,7 +757,7 @@ def create_backtest(strategy, strategy_name="UnknownStrategy"):
     output = run_with_animation(
         chat_with_model,
         "Backtest AI",
-        BACKTEST_PROMPT,
+        BACKTEST_PROMPT.replace("{PROJECT_ROOT}", str(PROJECT_ROOT)),
         f"Create a backtest for this strategy:\n\n{strategy}",
         BACKTEST_CONFIG
     )
@@ -798,6 +800,7 @@ def debug_backtest(backtest_code, error_message, strategy_name="UnknownStrategy"
     cprint(f"🐛 Error to fix: {error_message}", "yellow")
     
     # Create debug prompt with specific error
+    error_message = f"{error_message}\n\nRUTA CORRECTA DEL CSV (usa exactamente esta, absoluta): {BTC_CSV_PATH}"
     debug_prompt_with_error = DEBUG_PROMPT.format(error_message=error_message)
     
     output = run_with_animation(

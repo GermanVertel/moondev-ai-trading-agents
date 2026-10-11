@@ -53,7 +53,7 @@ import textwrap
 
 # Import model factory from RBI agent
 import sys
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 from src.models import model_factory
 
 # Define paths
@@ -67,8 +67,9 @@ MODELS = [
     # {"type": "ollama", "name": "DeepSeek-R1:latest"},
     # {"type": "ollama", "name": "llama3.2:latest"},
     # {"type": "ollama", "name": "gemma:2b"}
-    {"type": "deepseek", "name": "deepseek-chat"},
-    {"type": "deepseek", "name": "deepseek-reasoner"}
+    {"type": "xai", "name": "grok-4-fast-reasoning"}
+    # {"type": "deepseek", "name": "deepseek-chat"},
+    # {"type": "deepseek", "name": "deepseek-reasoner"}
 ]
 
 # Fun emojis for animation
