@@ -243,7 +243,8 @@ RISK MANAGEMENT:
 
 If you need indicators use TA lib or pandas TA. 
 
-Use this data path: {PROJECT_ROOT}/src/data/rbi/BTC-USD-15m.csv (use absolute path in code)
+Use this data path: {PROJECT_ROOT}/src/data/rbi/binance_15m/BTC-USDT-15m.csv (use absolute path in code)
+(ETH and SOL with the same format are available at {PROJECT_ROOT}/src/data/rbi/binance_15m/ETH-USDT-15m.csv and SOL-USDT-15m.csv)
 the above data head looks like below
 datetime, open, high, low, close, volume,
 2023-01-01 00:00:00, 16531.83, 16532.69, 16509.11, 16510.82, 231.05338022,
